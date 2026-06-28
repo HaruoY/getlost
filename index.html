@@ -61,7 +61,8 @@
 
     <div id="nav-interface">
         <div class="input-box">
-            <input type="text" id="maps-url" placeholder="Incolla qui il link di Google Maps...">
+            <input type="text" id="maps-url" placeholder="Link Google Maps ESTESO (con @lat,lon) o coordinate dirette">
+            <small style="color:#666; font-size:11px; margin-top:-4px;">⚠️ I link brevi maps.app.goo.gl non sono leggibili automaticamente — vedi sotto</small>
             <button class="btn-action" onclick="importaDaLink()">IMPORTA POSIZIONE</button>
         </div>
 
@@ -118,29 +119,78 @@
             window.addEventListener('deviceorientation', handleOrientation, true);
         }
 
-        // FUNZIONE DI ESTRAZIONE AUTOMATICA DELLE COORDINATE
-        function importaDaLink() {
-            const urlInput = document.getElementById('maps-url').value;
-            
-            // Cerca pattern di coordinate classici nei link di Google Maps (es: @41.8902,12.4922 o query=41.8902,12.4922)
-            const regex = /@(-?\d+\.\d+),(-?\d+\.\d+)/;
-            const regexQuery = /q=(-?\d+\.\d+),(-?\d+\.\d+)/;
-            
-            let match = urlInput.match(regex) || urlInput.match(regexQuery);
+        // Domini noti di short-link che richiedono un redirect server-side
+        // (non risolvibile da JS client-side per via delle policy CORS)
+        const SHORT_LINK_HOSTS = ['maps.app.goo.gl', 'goo.gl', 'g.co'];
 
-            // Se l'utente incolla direttamente solo le coordinate separate da virgola senza link
-            if (!match) {
-                const directMatch = urlInput.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
-                if (directMatch) match = directMatch;
+        function isShortLink(testo) {
+            return SHORT_LINK_HOSTS.some(host => testo.includes(host));
+        }
+
+        // Estrae lat/lon da un URL di Google Maps "espanso" o da coordinate dirette.
+        // Ritorna {lat, lon} oppure null.
+        function estraiCoordinate(testo) {
+            // Pattern elencati in ordine di specificità/affidabilità decrescente.
+            const patterns = [
+                /@(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/,        // .../@41.8902,12.4922,15z
+                /[?&]q=(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/,    // ...?q=41.8902,12.4922
+                /[?&]query=(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/,// ...?query=41.8902,12.4922
+                /!3d(-?\d{1,3}\.\d+)!4d(-?\d{1,3}\.\d+)/,     // formato interno /data=...!3d..!4d.. (place pin esatto)
+                /(-?\d{1,3}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/     // coordinate incollate dirette, senza URL
+            ];
+
+            for (const pattern of patterns) {
+                const match = testo.match(pattern);
+                if (match) {
+                    const lat = parseFloat(match[1]);
+                    const lon = parseFloat(match[2]);
+                    // Validazione di coerenza geografica: scarta falsi positivi
+                    // (es. numeri di telefono o ID che capitano nel formato giusto)
+                    if (lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+                        return { lat, lon };
+                    }
+                }
+            }
+            return null;
+        }
+
+        function importaDaLink() {
+            const urlInput = document.getElementById('maps-url').value.trim();
+
+            if (!urlInput) {
+                alert("Il campo è vuoto. Incolla un link di Google Maps o delle coordinate.");
+                return;
             }
 
-            if (match) {
-                destLat = parseFloat(match[1]);
-                destLon = parseFloat(match[2]);
+            const coords = estraiCoordinate(urlInput);
+
+            if (coords) {
+                destLat = coords.lat;
+                destLon = coords.lon;
                 aggiornaLog(`Meta importata con successo!\nLat: ${destLat.toFixed(5)} | Lon: ${destLon.toFixed(5)}`);
                 updateNavigation();
+                return;
+            }
+
+            // Nessuna coordinata trovata: distinguiamo il caso "link breve"
+            // (motivo noto e spiegabile) dal caso generico di formato non riconosciuto.
+            if (isShortLink(urlInput)) {
+                alert(
+                    "Questo è un link abbreviato (maps.app.goo.gl).\n\n" +
+                    "Le coordinate non sono presenti nel link stesso: vengono " +
+                    "risolte solo dal server di Google al momento dell'apertura, " +
+                    "e per limitazioni di sicurezza del browser (CORS) questa pagina " +
+                    "non può seguire quel redirect automaticamente.\n\n" +
+                    "Soluzione: apri il link nel browser, attendi che la pagina di " +
+                    "Google Maps si carichi completamente, poi copia l'URL ESTESO " +
+                    "dalla barra degli indirizzi (conterrà '@lat,lon') e incollalo qui."
+                );
             } else {
-                alert("Non sono riuscito a trovare le coordinate in questo testo. Assicurati che ci siano i numeri decimali separati da una virgola o un link valido.");
+                alert(
+                    "Non ho trovato coordinate valide in questo testo.\n\n" +
+                    "Formati supportati: link Google Maps con '@lat,lon', link con " +
+                    "'?q=lat,lon', oppure coordinate dirette tipo '41.8902, 12.4922'."
+                );
             }
         }
 
