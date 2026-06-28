@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Navigatore GPS Alta Precisione</title>
+    <title>Navigatore GPS Automatico</title>
     <style>
         body {
             margin: 0; padding: 0;
             background-color: #121212; color: white;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             height: 100vh; overflow: hidden;
         }
@@ -21,24 +21,23 @@
         .btn-main {
             padding: 20px 40px; background-color: #00adb5; color: white;
             border: none; border-radius: 50px; font-size: 18px; cursor: pointer; font-weight: bold;
-            box-shadow: 0 4px 15px rgba(0, 173, 181, 0.4);
         }
         #nav-interface {
             display: flex; flex-direction: column; align-items: center; width: 90%; max-width: 400px;
         }
-        .coord-inputs {
-            display: flex; gap: 10px; width: 100%; margin-bottom: 15px;
+        .input-box {
+            width: 100%; margin-bottom: 15px; display: flex; flex-direction: column; gap: 8px;
         }
         input {
-            flex: 1; padding: 12px; border-radius: 8px; border: none;
-            background-color: #1e1e1e; color: white; font-size: 16px; text-align: center;
+            width: 100%; padding: 14px; border-radius: 8px; border: none;
+            background-color: #1e1e1e; color: white; font-size: 15px; box-sizing: border-box;
         }
         .btn-action {
-            width: 100%; padding: 12px; background-color: #00adb5; color: white;
+            width: 100%; padding: 14px; background-color: #00adb5; color: white;
             border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer;
         }
         #compass-container {
-            width: 260px; height: 260px; position: relative; margin: 30px 0;
+            width: 260px; height: 260px; position: relative; margin: 25px 0;
         }
         #arrow {
             width: 100%; height: 100%; transition: transform 0.1s ease-out;
@@ -47,25 +46,24 @@
             font-size: 42px; font-weight: bold; color: #00adb5; margin-bottom: 5px;
         }
         #status-log {
-            font-size: 11px; color: #888; text-align: center; max-width: 90%; margin-top: 15px;
-            font-family: monospace; line-height: 1.4;
+            font-size: 12px; color: #888; text-align: center; max-width: 90%; margin-top: 15px;
+            font-family: monospace;
         }
     </style>
 </head>
 <body>
 
     <div id="start-screen">
-        <h2>Navigatore Puntatore GPS</h2>
-        <p>Attiva i sensori hardware ad alta precisione del dispositivo.</p>
+        <h2>Navigatore Smart GPS</h2>
+        <p>Incolla un link di Google Maps per importare la posizione esatta.</p>
         <button class="btn-main" onclick="inizializzaNavigatore()">ATTIVA SENSORI</button>
     </div>
 
     <div id="nav-interface">
-        <div class="coord-inputs">
-            <input type="number" id="lat-input" placeholder="Latitudine (es. 41.8902)" step="any">
-            <input type="number" id="lon-input" placeholder="Longitudine (es. 12.4922)" step="any">
+        <div class="input-box">
+            <input type="text" id="maps-url" placeholder="Incolla qui il link di Google Maps...">
+            <button class="btn-action" onclick="importaDaLink()">IMPORTA POSIZIONE</button>
         </div>
-        <button class="btn-action" onclick="impostaMeta()">IMPOSTA DESTINAZIONE</button>
 
         <div id="compass-container">
             <svg id="arrow" viewBox="0 0 100 100">
@@ -74,7 +72,7 @@
         </div>
 
         <div id="distance-display">-- m</div>
-        <div id="status-log">In attesa di coordinate...</div>
+        <div id="status-log">In attesa del link della destinazione...</div>
     </div>
 
     <script>
@@ -87,68 +85,65 @@
         }
 
         function inizializzaNavigatore() {
-            aggiornaLog("Attivazione sensori...");
-            
-            // 1. Sblocco Bussola Magnetica del telefono
             if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                DeviceOrientationEvent.requestPermission()
-                    .then(state => {
-                        if (state === 'granted') attivaBussola();
-                        else alert("Bussola negata. La freccia non girerà.");
-                    }).catch(err => alert("Errore Bussola: " + err));
+                DeviceOrientationEvent.requestPermission().then(state => {
+                    if (state === 'granted') attivaBussola();
+                }).catch(err => alert(err));
             } else {
                 attivaBussola();
             }
 
-            // 2. Sblocco GPS Hardware (Massima Precisione Forzata)
             if (navigator.geolocation) {
                 navigator.geolocation.watchPosition(
                     (pos) => {
                         currentLat = pos.coords.latitude;
                         currentLon = pos.coords.longitude;
                         let acc = pos.coords.accuracy ? pos.coords.accuracy.toFixed(1) : "?";
-                        aggiornaLog(`GPS Connesso (Precisione: +/- ${acc} metri)`);
+                        aggiornaLog(`GPS Attivo (Precisione: +/- ${acc}m)`);
                         updateNavigation();
                     },
-                    (err) => { aggiornaLog(`Errore GPS (${err.code}): ${err.message}`); },
+                    (err) => { aggiornaLog(`Errore GPS: ${err.message}`); },
                     { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
                 );
-            } else {
-                alert("Questo telefono non supporta il GPS nel browser.");
             }
-
             document.getElementById('start-screen').style.display = 'none';
         }
 
         function attivaBussola() {
             const handleOrientation = (event) => {
-                if (event.webkitCompassHeading) {
-                    deviceHeading = event.webkitCompassHeading; // Dispositivi iOS (Apple)
-                } else if (event.alpha) {
-                    deviceHeading = 360 - event.alpha; // Dispositivi Android
-                }
+                deviceHeading = event.webkitCompassHeading || (360 - event.alpha) || 0;
                 updateNavigation();
             };
             window.addEventListener('deviceorientationabsolute', handleOrientation, true);
             window.addEventListener('deviceorientation', handleOrientation, true);
         }
 
-        function impostaMeta() {
-            const latVal = parseFloat(document.getElementById('lat-input').value);
-            const lonVal = parseFloat(document.getElementById('lon-input').value);
+        // FUNZIONE DI ESTRAZIONE AUTOMATICA DELLE COORDINATE
+        function importaDaLink() {
+            const urlInput = document.getElementById('maps-url').value;
+            
+            // Cerca pattern di coordinate classici nei link di Google Maps (es: @41.8902,12.4922 o query=41.8902,12.4922)
+            const regex = /@(-?\d+\.\d+),(-?\d+\.\d+)/;
+            const regexQuery = /q=(-?\d+\.\d+),(-?\d+\.\d+)/;
+            
+            let match = urlInput.match(regex) || urlInput.match(regexQuery);
 
-            if (isNaN(latVal) || isNaN(lonVal)) {
-                alert("Inserisci coordinate decimali valide.");
-                return;
+            // Se l'utente incolla direttamente solo le coordinate separate da virgola senza link
+            if (!match) {
+                const directMatch = urlInput.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
+                if (directMatch) match = directMatch;
             }
 
-            destLat = latVal;
-            destLon = lonVal;
-            aggiornaLog(`Meta impostata su: ${destLat.toFixed(5)}, ${destLon.toFixed(5)}`);
-            updateNavigation();
+            if (match) {
+                destLat = parseFloat(match[1]);
+                destLon = parseFloat(match[2]);
+                aggiornaLog(`Meta importata con successo!\nLat: ${destLat.toFixed(5)} | Lon: ${destLon.toFixed(5)}`);
+                updateNavigation();
+            } else {
+                alert("Non sono riuscito a trovare le coordinate in questo testo. Assicurati che ci siano i numeri decimali separati da una virgola o un link valido.");
+            }
         }
 
-        // Calcolo geometrico della distanza sulla curvatura terrestre
         function calculateDistance(lat1, lon1, lat2, lon2) {
             const R = 6371; 
             const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -157,7 +152,6 @@
             return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
         }
 
-        // Calcolo dell'angolo di direzione (Bearing)
         function calculateBearing(lat1, lon1, lat2, lon2) {
             const dLon = (lon2 - lon1) * Math.PI / 180;
             lat1 = lat1 * Math.PI / 180; lat2 = lat2 * Math.PI / 180;
@@ -169,18 +163,11 @@
         function updateNavigation() {
             if (currentLat === null || currentLon === null || destLat === null || destLon === null) return;
 
-            // Aggiorna Distanza (Passa a metri sotto 1 km per estrema precisione)
             const distance = calculateDistance(currentLat, currentLon, destLat, destLon);
-            if (distance < 1) {
-                document.getElementById('distance-display').textContent = `${(distance * 1000).toFixed(0)} m`;
-            } else {
-                document.getElementById('distance-display').textContent = `${distance.toFixed(2)} km`;
-            }
+            document.getElementById('distance-display').textContent = distance < 1 ? `${(distance * 1000).toFixed(0)} m` : `${distance.toFixed(2)} km`;
 
-            // Calcola la direzione finale sottraendo l'orientamento del telefono
             const targetBearing = calculateBearing(currentLat, currentLon, destLat, destLon);
-            let finalAngle = targetBearing - deviceHeading;
-            document.getElementById('arrow').style.transform = `rotate(${finalAngle}deg)`;
+            document.getElementById('arrow').style.transform = `rotate(${targetBearing - deviceHeading}deg)`;
         }
     </script>
 </body>
