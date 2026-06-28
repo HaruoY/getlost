@@ -3,215 +3,106 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Navigatore GPS Minimal</title>
+    <title>Debug Radicale</title>
     <style>
-        body {
-            margin: 0;
-            padding: 0;
-            background-color: #121212;
-            color: white;
-            font-family: sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            overflow: hidden;
-        }
-        #start-screen {
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: #121212;
-            z-index: 100;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-            box-sizing: border-box;
-            text-align: center;
-        }
-        .btn-main {
-            padding: 20px 40px;
-            background-color: #00adb5;
-            color: white;
-            border: none;
-            border-radius: 50px;
-            font-size: 18px;
-            cursor: pointer;
-            font-weight: bold;
-            box-shadow: 0 4px 15px rgba(0, 173, 181, 0.4);
-        }
-        #search-container {
-            position: absolute;
-            top: 20px;
-            width: 90%;
-            max-width: 400px;
-            z-index: 10;
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-        }
-        .search-row {
-            display: flex;
-            gap: 5px;
-        }
-        input {
-            flex-grow: 1;
-            padding: 12px;
-            border-radius: 8px;
-            border: none;
-            background-color: #1e1e1e;
-            color: white;
-            font-size: 16px;
-        }
-        .btn-search {
-            padding: 12px 20px;
-            background-color: #00adb5;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 16px;
-            cursor: pointer;
-        }
-        #suggestions {
-            background-color: #1e1e1e;
-            border-radius: 8px;
-            max-height: 200px;
-            overflow-y: auto;
-            list-style: none;
-            padding: 0;
-            margin: 0;
-            display: none;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-        }
-        #suggestions li {
-            padding: 12px;
-            border-bottom: 1px solid #2d2d2d;
-            cursor: pointer;
-            font-size: 14px;
-            text-align: left;
-        }
-        #suggestions li:hover { background-color: #2d2d2d; }
-        #compass-container {
-            width: 280px;
-            height: 280px;
-            position: relative;
-            margin-top: 60px;
-        }
-        #arrow {
-            width: 100%;
-            height: 100%;
-            transition: transform 0.1s ease-out;
-        }
-        #distance-display {
-            font-size: 36px;
-            font-weight: bold;
-            color: #00adb5;
-            margin-top: 20px;
-        }
-        #info {
-            margin-top: 10px;
-            font-size: 13px;
-            color: #aaaaaa;
-            text-align: center;
-            max-width: 80%;
-        }
+        body { background: #111; color: #fff; font-family: monospace; padding: 10px; margin: 0; }
+        #console { background: #000; border: 1px solid #333; height: 180px; overflow-y: scroll; padding: 10px; font-size: 12px; margin-bottom: 10px; border-radius: 5px; }
+        .log-info { color: #00ffcc; }
+        .log-err { color: #ff5555; }
+        .log-succ { color: #55ff55; }
+        button { width: 100%; padding: 15px; background: #00adb5; border: none; color: white; font-weight: bold; border-radius: 5px; font-size: 16px; margin-bottom: 10px; }
+        #app-core { display: none; text-align: center; }
+        #arrow { width: 150px; height: 150px; transition: transform 0.1s; margin: 20px auto; }
+        input { width: 70%; padding: 10px; border-radius: 5px; border: none; }
     </style>
 </head>
 <body>
 
-    <div id="start-screen">
-        <h2>Navigatore GPS Freccia</h2>
-        <p>Per funzionare, l'applicazione deve accedere al GPS e alla bussola del telefono.</p>
-        <button class="btn-main" onclick="inizializzaNavigatore()">AVVIA NAVIGATORE</button>
-    </div>
+    <h3>LOG DI SISTEMA:</h3>
+    <div id="console">In attesa dell'azione utente...</div>
 
-    <div id="search-container">
-        <div class="search-row">
-            <input type="text" id="search-input" placeholder="Cerca una destinazione...">
-            <button class="btn-search" onclick="searchPlace()">Cerca</button>
+    <button id="btn-avvia" onclick="forzaAvvio()">FORZA AVVIO E DIAGNOSTICA</button>
+
+    <div id="app-core">
+        <input type="text" id="target" placeholder="Scrivi una città...">
+        <button style="width:20%; padding:10px; display:inline-block;" onclick="cerca()">Vai</button>
+        <div id="arrow">
+            <svg viewBox="0 0 100 100" style="width:100%; height:100%;">
+                <polygon points="50,5 95,95 50,75 5,95" fill="#00adb5" />
+            </svg>
         </div>
-        <ul id="suggestions"></ul>
+        <div id="dist">-- km</div>
     </div>
-
-    <div id="compass-container">
-        <svg id="arrow" viewBox="0 0 100 100">
-            <polygon points="50,5 95,95 50,75 5,95" fill="#00adb5" />
-        </svg>
-    </div>
-
-    <div id="distance-display">-- km</div>
-    <div id="info">Cerca un posto per iniziare.</div>
 
     <script>
-        let destLat = null, destLon = null;
-        let currentLat = null, currentLon = null;
-        let deviceHeading = 0;
+        function log(testo, tipo="info") {
+            const con = document.getElementById('console');
+            let classe = "log-info";
+            if(tipo === "err") classe = "log-err";
+            if(tipo === "succ") classe = "log-succ";
+            con.innerHTML += `<div class="${classe}">> ${testo}</div>`;
+            con.scrollTop = con.scrollHeight;
+        }
 
-        function inizializzaNavigatore() {
-            // Sblocco Bussola (iOS e Android)
-            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                DeviceOrientationEvent.requestPermission()
-                    .then(permissionState => {
-                        if (permissionState === 'granted') {
-                            attivaSensoriOrientamento();
-                        } else {
-                            alert("Permesso bussola negato. La freccia non girerà.");
-                        }
-                    }).catch(console.error);
+        window.onerror = function(msg, url, line) {
+            log(`ERRORE CRASH: ${msg} alla linea ${line}`, "err");
+            return false;
+        };
+
+        log("Pagina caricata correttamente.");
+
+        function forzaAvvio() {
+            log("Pulsante premuto. Avvio diagnostica...");
+            document.getElementById('btn-avvia').style.display = 'none';
+            document.getElementById('app-core').style.display = 'block';
+
+            // 1. TEST GPS
+            if (!navigator.geolocation) {
+                log("ERRORE: Il browser non ha l'oggetto Geolocation!", "err");
             } else {
-                attivaSensoriOrientamento();
-            }
-
-            // Sblocco GPS
-            if (navigator.geolocation) {
+                log("Tentativo di aggancio GPS in corso...", "info");
                 navigator.geolocation.watchPosition(
-                    (pos) => {
-                        currentLat = pos.coords.latitude;
-                        currentLon = pos.coords.longitude;
-                        updateNavigation();
+                    (p) => {
+                        log(`GPS OK! Lat: ${p.coords.latitude.toFixed(4)}, Lon: ${p.coords.longitude.toFixed(4)}`, "succ");
                     },
-                    (err) => { alert("Errore GPS: " + err.message); },
-                    { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+                    (e) => {
+                        log(`ERRORE GPS hardware: Codice ${e.code} - ${e.message}`, "err");
+                    },
+                    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
                 );
-            } else {
-                alert("GPS non supportato dal browser.");
             }
 
-            // Nascondi la schermata di sblocco
-            document.getElementById('start-screen').style.display = 'none';
+            // 2. TEST BUSSOLA
+            log("Verifica sensori orientamento...", "info");
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                log("Rilevato sistema iOS (iPhone). Richiedo permesso...", "info");
+                DeviceOrientationEvent.requestPermission()
+                    .then(state => {
+                        if(state === 'granted') {
+                            log("Bussola iOS: PERMESSO ACCETTATO", "succ");
+                            attivaBussola();
+                        } else {
+                            log("Bussola iOS: PERMESSO NEGATO", "err");
+                        }
+                    }).catch(err => log("Errore promessa iOS: " + err, "err"));
+            } else {
+                log("Rilevato sistema standard (Android o PC). Attivo sensori...", "info");
+                attivaBussola();
+            }
         }
 
-        function attivaSensoriOrientamento() {
-            const handleOrientation = (event) => {
-                if (event.webkitCompassHeading) {
-                    deviceHeading = event.webkitCompassHeading; // iOS
-                } else if (event.alpha) {
-                    deviceHeading = 360 - event.alpha; // Android
-                }
-                updateNavigation();
-            };
-            window.addEventListener('deviceorientationabsolute', handleOrientation, true);
-            window.addEventListener('deviceorientation', handleOrientation, true);
+        function attivaBussola() {
+            window.addEventListener('deviceorientationabsolute', (e) => {
+                let h = e.webkitCompassHeading || (360 - e.alpha);
+                log(`Dati bussola ricevuti: ${h.toFixed(0)}°`, "succ");
+            }, {once: true}); // Logga solo la prima volta per non intasare
         }
 
-        async function searchPlace() {
-            const query = document.getElementById('search-input').value;
-            if (!query) return;
-
-            const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5`;
-            try {
-                const response = await fetch(url, { headers: { 'User-Agent': 'MinimalGPS/1.0' } });
-                const data = await response.json();
-                const suggestionsUl = document.getElementById('suggestions');
-                suggestionsUl.innerHTML = '';
-                
-                if (data.length === 0) {
-                    alert("Nessun posto trovato.");
-                    return;
-                }
-
-                suggestionsUl.style.display = 'block';
-                data.forEach(place => {
-                    const li = document.createElement('li
+        function cerca() {
+            log("Tentativo di ricerca sul server OpenStreetMap...", "info");
+            // Logica minima di test per la ricerca
+            log("Usa una destinazione reale per calcolare i km.", "info");
+        }
+    </script>
+</body>
+</html>
