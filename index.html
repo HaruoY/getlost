@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Navigatore Minimal</title>
+    <title>Navigatore Minimal con Ricerca</title>
     <style>
         body {
             margin: 0;
@@ -18,50 +18,93 @@
             height: 100vh;
             overflow: hidden;
         }
-        #inputs {
-            margin-bottom: 20px;
-            text-align: center;
+        #search-container {
+            position: absolute;
+            top: 20px;
+            width: 90%;
+            max-width: 400px;
             z-index: 10;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .search-row {
+            display: flex;
+            gap: 5px;
         }
         input {
-            padding: 8px;
-            margin: 4px;
-            border-radius: 5px;
+            flex-grow: 1;
+            padding: 12px;
+            border-radius: 8px;
             border: none;
-            width: 120px;
+            background-color: #1e1e1e;
+            color: white;
+            font-size: 16px;
         }
         button {
-            padding: 8px 15px;
+            padding: 12px 20px;
             background-color: #00adb5;
             color: white;
             border: none;
-            border-radius: 5px;
+            border-radius: 8px;
+            font-size: 16px;
             cursor: pointer;
+            font-weight: bold;
+        }
+        #suggestions {
+            background-color: #1e1e1e;
+            border-radius: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            display: none;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        #suggestions li {
+            padding: 12px;
+            border-bottom: 1px solid #2d2d2d;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        #suggestions li:hover {
+            background-color: #2d2d2d;
         }
         #compass-container {
-            width: 300px;
-            height: 300px;
+            width: 280px;
+            height: 280px;
             position: relative;
+            margin-top: 60px;
         }
         #arrow {
             width: 100%;
             height: 100%;
             transition: transform 0.1s ease-out;
         }
+        #distance-display {
+            font-size: 32px;
+            font-weight: bold;
+            color: #00adb5;
+            margin-top: 15px;
+        }
         #info {
-            margin-top: 20px;
-            font-size: 14px;
+            margin-top: 10px;
+            font-size: 13px;
             color: #aaaaaa;
             text-align: center;
+            max-width: 80%;
         }
     </style>
 </head>
 <body>
 
-    <div id="inputs">
-        <input type="number" id="destLat" placeholder="Lat Destinazione" step="any" value="41.8902">
-        <input type="number" id="destLon" placeholder="Lon Destinazione" step="any" value="12.4922">
-        <button onclick="startNavigation()">Avvia</button>
+    <div id="search-container">
+        <div class="search-row">
+            <input type="text" id="search-input" placeholder="Cerca una destinazione...">
+            <button onclick="searchPlace()">Cerca</button>
+        </div>
+        <ul id="suggestions"></ul>
     </div>
 
     <div id="compass-container">
@@ -70,20 +113,27 @@
         </svg>
     </div>
 
-    <div id="info">Inserisci le coordinate e premi Avvia.<br>Richiede GPS e Bussola attivi.</div>
+    <div id="distance-display">-- km</div>
+    <div id="info">Cerca un posto o una città per iniziare la navigazione.</div>
 
     <script>
-        let destLat = 0;
-        let destLon = 0;
-        let currentLat = 0;
-        let currentLon = 0;
-        let deviceHeading = 0; // Direzione del telefono rispetto al Nord
+        let destLat = null;
+        let destLon = null;
+        let currentLat = null;
+        let currentLon = null;
+        let deviceHeading = 0;
 
-        function startNavigation() {
-            destLat = parseFloat(document.getElementById('destLat').value);
-            destLon = parseFloat(document.getElementById('destLon').value);
-            
-            // Richiesta permessi per i sensori (fondamentale su iOS)
+        // Attiva subito il GPS all'apertura dell'app
+        if (navigator.geolocation) {
+            navigator.geolocation.watchPosition(updatePosition, handleError, {
+                enableHighAccuracy: true,
+                maximumAge: 0,
+                timeout: 10000
+            });
+        }
+
+        // Richiesta permessi bussola (attivati al primo tocco sullo schermo)
+        document.body.addEventListener('click', function() {
             if (typeof DeviceOrientationEvent.requestPermission === 'function') {
                 DeviceOrientationEvent.requestPermission()
                     .then(permissionState => {
@@ -91,75 +141,75 @@
                             window.addEventListener('deviceorientationabsolute', handleOrientation, true);
                             window.addEventListener('deviceorientation', handleOrientation, true);
                         }
-                    })
-                    .catch(console.error);
+                    }).catch(console.error);
             } else {
                 window.addEventListener('deviceorientationabsolute', handleOrientation, true);
                 window.addEventListener('deviceorientation', handleOrientation, true);
             }
+        }, { once: true });
 
-            // Attiva il GPS ad alta precisione
-            if (navigator.geolocation) {
-                navigator.geolocation.watchPosition(updatePosition, handleError, {
-                    enableHighAccuracy: true, // Estrema precisione
-                    maximumAge: 0,
-                    timeout: 5000
+        // Funzione per cercare il posto tramite l'API di OpenStreetMap
+        async function searchPlace() {
+            const query = document.getElementById('search-input').value;
+            if (!query) return;
+
+            const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5`;
+            
+            try {
+                const response = await fetch(url, {
+                    headers: { 'User-Agent': 'MinimalGPSNavigator/1.0' }
                 });
-            } else {
-                alert("Il tuo browser non supporta il GPS.");
+                const data = await response.json();
+                
+                const suggestionsUl = document.getElementById('suggestions');
+                suggestionsUl.innerHTML = '';
+                
+                if (data.length === 0) {
+                    alert("Nessun posto trovato con questo nome.");
+                    return;
+                }
+
+                suggestionsUl.style.display = 'block';
+                data.forEach(place => {
+                    const li = document.createElement('li');
+                    li.textContent = place.display_name;
+                    li.onclick = () => selectPlace(place.lat, place.lon, place.display_name);
+                    suggestionsUl.appendChild(li);
+                });
+            } catch (error) {
+                console.error("Errore durante la ricerca:", error);
+                alert("Errore di connessione durante la ricerca.");
             }
+        }
+
+        function selectPlace(lat, lon, name) {
+            destLat = parseFloat(lat);
+            destLon = parseFloat(lon);
+            
+            document.getElementById('search-input').value = name.split(',')[0]; // Mette il nome breve nella barra
+            document.getElementById('suggestions').style.display = 'none';
+            
+            document.getElementById('info').innerHTML = `Destinazione impostata.<br>Coordinate: ${destLat.toFixed(5)}, ${destLon.toFixed(5)}`;
+            updateNavigation();
         }
 
         function updatePosition(position) {
-            currentLat = position.coords.coords ? position.coords.coords.latitude : position.coords.latitude;
-            currentLon = position.coords.coords ? position.coords.coords.longitude : position.coords.longitude;
-            updateArrow();
+            currentLat = position.coords.latitude;
+            currentLon = position.coords.longitude;
+            updateNavigation();
         }
 
         function handleOrientation(event) {
-            // Cerca di ottenere l'orientamento corretto rispetto al Nord magnetico/geografico
             if (event.webkitCompassHeading) {
-                deviceHeading = event.webkitCompassHeading; // iOS
+                deviceHeading = event.webkitCompassHeading;
             } else if (event.alpha) {
-                deviceHeading = 360 - event.alpha; // Android (approssimato se non absolute)
+                deviceHeading = 360 - event.alpha;
             }
-            updateArrow();
+            updateNavigation();
         }
 
-        // Formula matematica per calcolare l'angolo tra due punti sulla Terra (Bearing)
-        function calculateBearing(lat1, lon1, lat2, lon2) {
-            const dLon = (lon2 - lon1) * Math.PI / 180;
-            lat1 = lat1 * Math.PI / 180;
-            lat2 = lat2 * Math.PI / 180;
-
-            const y = Math.sin(dLon) * Math.cos(lat2);
-            const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
-            
-            let bearing = Math.atan2(y, x) * 180 / Math.PI;
-            return (bearing + 360) % 360;
-        }
-
-        function updateArrow() {
-            if (currentLat === 0 && currentLon === 0) return;
-
-            const targetBearing = calculateBearing(currentLat, currentLon, destLat, destLon);
-            
-            // L'angolo finale della freccia sullo schermo
-            let arrowAngle = targetBearing - deviceHeading;
-            
-            // Applica la rotazione alla freccia SVG
-            document.getElementById('arrow').style.transform = `rotate(${arrowAngle}deg)`;
-            
-            // Mostra info di debug
-            document.getElementById('info').innerHTML = `
-                La tua pos: ${currentLat.toFixed(5)}, ${currentLon.toFixed(5)}<br>
-                Angolo Meta: ${targetBearing.toFixed(1)}° | Tua Direzione: ${deviceHeading.toFixed(1)}°
-            `;
-        }
-
-        function handleError(error) {
-            console.warn(`Errore GPS (${error.code}): ${error.message}`);
-        }
-    </script>
-</body>
-</html>
+        // Formula dell'Haversine per calcolare la distanza in chilometri
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371; // Raggio della Terra in km
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const d
